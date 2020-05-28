@@ -1,7 +1,7 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2012-2019 SUSE Linux GmbH
+# Copyright (C) 2012-2020 SUSE Linux GmbH
 #
 # Author:
 # Thomas Schraitle <toms at opensuse dot org>
@@ -17,15 +17,20 @@ of the DTD, for example:
    <!-- The external subset -->
    <!ENTITY % entities SYSTEM "entity-decl.ent">
    %entities;
-   <!ENTITY % entities SYSTEM "foo.ent">
+   <!ENTITY % foo.ent SYSTEM "foo.ent">
    %foo.ent;
+   <!--
+   <!ENTITY % bar.ent SYSTEM "bar.ent">
+   %bar.ent;
+   -->
  ]>
 
 The output will be:
 
    entity-decl.ent foo.ent
 
-The script detects XML comments inside the internal subset and removes them.
+The script detects XML comments inside the internal subset and removes them. In
+the above example, the "bar.ent" is therefor not in the result list.
 """
 
 import argparse
@@ -37,7 +42,7 @@ from logging.config import dictConfig
 from xml.sax import SAXParseException, make_parser
 from xml.sax.handler import ContentHandler
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "Thomas Schraitle <thomas DOT schraitle AT suse DOT de>"
 __license__ = "GPL 3"
 
@@ -174,12 +179,12 @@ def parse_ent_file(entityfile, args):
     log.debug("Investigate entity file %r", entityfile)
     content = open(entityfile, 'r').read()
     for entity in r_ENTITY.finditer(content):
-        if args.skip_public and entity['pubid']:
+        if args.skip_public and entity.group('pubid'):
             log.debug("Skipping public parameter entity %s %s",
-                      entity['pubid'].replace('\n', ''), entity['sysid'])
+                      entity.group('pubid').replace('\n', ''), entity.group('sysid'))
             continue
-        log.debug("Found match %s", entity['sysid'])
-        yield entity['sysid'][1:-1]
+        log.debug("Found match %s", entity.group('sysid'))
+        yield entity.group('sysid')[1:-1]
 
 
 def getentities(args, linenr=50):
@@ -211,13 +216,20 @@ def getentities(args, linenr=50):
         # Try to find matches
         match = r_DOCTYPE.search(lines)
         log.debug("Match: %s", match)
+        log.debug("Match groups: %s", match.groupdict())
         if match:
-            content = remove_xml_comments(match['IntSubset'])
+            internalsubset = match.group('IntSubset')
+            if internalsubset is None:
+                log.debug("No internal subset found in %r", xmlfile)
+                # No internal subset, so continue with next file
+                continue
+
+            content = remove_xml_comments(internalsubset)
 
             log.debug("Looking for entities...")
             for match in r_ENTITY.finditer(content):
                 # Remove quotes:
-                entity = match['sysid'][1:-1]
+                entity = match.group('sysid')[1:-1]
                 # log.info("Found entity %r", entity)
                 if entity in seen:
                     continue
